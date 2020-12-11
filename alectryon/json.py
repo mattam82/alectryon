@@ -22,17 +22,17 @@ import json
 from os import path, makedirs
 from itertools import zip_longest
 
-from . import serapi
+from . import core
 
 TYPE_OF_ALIASES = {
-    "text": serapi.Text,
-    "hypothesis": serapi.Hypothesis,
-    "goal": serapi.Goal,
-    "message": serapi.Message,
-    "sentence": serapi.Sentence,
-    "goals": serapi.Goals,
-    "messages": serapi.Messages,
-    "rich_sentence": serapi.RichSentence,
+    "text": core.Text,
+    "hypothesis": core.Hypothesis,
+    "goal": core.Goal,
+    "message": core.Message,
+    "sentence": core.Sentence,
+    "goals": core.Goals,
+    "messages": core.Messages,
+    "rich_sentence": core.RichSentence,
 }
 
 ALIASES_OF_TYPE = {
@@ -62,7 +62,7 @@ def minimal_json_of_annotated(obj):
         return {k: minimal_json_of_annotated(v) for k, v in obj.items()}
     type_name = ALIASES_OF_TYPE.get(type(obj).__name__)
     if type_name:
-        if isinstance(obj, serapi.Text):
+        if isinstance(obj, core.Text):
             return obj.contents
         d = {k: minimal_json_of_annotated(v) for k, v in zip(obj._fields, obj)}
         contents = d.pop("contents", None)

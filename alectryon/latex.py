@@ -20,7 +20,7 @@
 
 import re
 
-from .serapi import Text, RichSentence, Messages, Goals
+from .core import Text, RichSentence, Messages, Goals
 from . import transforms, GENERATOR
 
 def format_macro(name, args, optargs):
