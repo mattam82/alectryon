@@ -67,7 +67,7 @@ from docutils.transforms import Transform
 from docutils.writers import get_writer_class
 
 from . import transforms
-from .core import annotate, SerAPI, GeneratorInfo
+from .serapi import annotate, SerAPI, GeneratorInfo
 from .html import ASSETS, ADDITIONAL_HEADS, HtmlGenerator, gen_banner, wrap_classes
 from .pygments import highlight_html, added_tokens, replace_builtin_coq_lexer
 
@@ -183,7 +183,7 @@ class AlectryonTransform(Transform):
         cache = Cache(CACHE_DIRECTORY, self.document['source'], sertop_args)
         annotated = cache.get(chunks)
         if annotated is None:
-            # Later: decouple from .core by generalizing over `annotate`
+            # Later: decouple from .serapi by generalizing over `annotate`
             annotated = annotate(chunks, sertop_args)
             cache.put(chunks, annotated, SerAPI.version_info())
         return cache.generator, annotated

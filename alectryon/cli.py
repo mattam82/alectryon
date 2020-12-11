@@ -60,7 +60,7 @@ def rst_to_coq(coq, fpath, point, marker):
     return _catch_parsing_errors(fpath, rst2coq_marked, coq, point, marker)
 
 def annotate_chunks(chunks, sertop_args):
-    from .core import annotate
+    from .serapi import annotate
     return annotate(chunks, sertop_args)
 
 def register_docutils(v, sertop_args):
@@ -260,7 +260,7 @@ def dump_html_standalone(snippets, fname, webpage_style,
     from dominate import tags, document
     from dominate.util import raw
     from . import GENERATOR
-    from .core import SerAPI
+    from .serapi import SerAPI
     from .pygments import HTML_FORMATTER
     from .html import ASSETS, ADDITIONAL_HEADS, gen_banner, wrap_classes
 
@@ -642,8 +642,8 @@ def except_hook(etype, value, tb):
 
 def process_pipelines(args):
     if args.debug:
-        from . import core
-        core.DEBUG = True
+        from . import serapi
+        serapi.DEBUG = True
 
     if args.traceback:
         from . import core
@@ -655,8 +655,8 @@ def process_pipelines(args):
         docutils.CACHE_DIRECTORY = args.cache_directory
 
     if args.expect_unexpected:
-        from . import core
-        core.SerAPI.EXPECT_UNEXPECTED = True
+        from . import serapi
+        serapi.SerAPI.EXPECT_UNEXPECTED = True
 
     for fpath, pipeline in args.pipelines:
         state, ctx = None, build_context(fpath, args)
