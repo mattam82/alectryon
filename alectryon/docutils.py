@@ -67,7 +67,8 @@ from docutils.transforms import Transform
 from docutils.writers import get_writer_class
 
 from . import transforms
-from .serapi import annotate, SerAPI, GeneratorInfo
+from .core import GeneratorInfo
+from .serapi import annotate, SerAPI
 from .html import ASSETS, ADDITIONAL_HEADS, HtmlGenerator, gen_banner, wrap_classes
 from .pygments import highlight_html, added_tokens, replace_builtin_coq_lexer
 
