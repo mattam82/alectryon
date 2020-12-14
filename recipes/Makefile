@@ -4,7 +4,13 @@ alectryon := ../alectryon.py --output-directory output --no-version-numbers --tr
 minimal := $(PYTHON) -m alectryon.minimal
 
 assets := alectryon.css alectryon.js
-all := .version-info plain.v.html literate.v.html coqdoc.v.html coqdoc.html literate.html document.html hyps.html mathjax.html document.minimal.html document.v literate.v.rst fragments.io.json fragments.snippets.html fragments.snippets.tex latex.snippets.tex api.out
+all := .version-info \
+	plain.v.html literate.v.html coqdoc.v.html \
+	coqdoc.html literate.html document.html hyps.html mathjax.html document.minimal.html \
+	document.v literate.v.rst \
+	fragments.io.json fragments.snippets.html fragments.snippets.tex \
+	latex.snippets.tex \
+	api.out
 
 all: $(patsubst %,output/%,$(all) $(assets)) sphinx/_build/html/index.html;
 
@@ -54,15 +60,15 @@ output/literate.v.rst: literate.v | output
 	$(alectryon) $< -o $@
 
 # JSON → JSON
-output/fragments.io.json: fragments.json | output
+output/fragments.io.json: fragments.v.json | output
 	$(alectryon) $<
 
 # JSON → HTML snippets
-output/fragments.snippets.html: fragments.json | output
+output/fragments.snippets.html: fragments.v.json | output
 	$(alectryon) $< -o $@
 
 # JSON → Latex snippets
-output/fragments.snippets.tex: fragments.json | output
+output/fragments.snippets.tex: fragments.v.json | output
 	$(alectryon) $< -o $@
 
 # Coq → Latex snippets
