@@ -70,7 +70,7 @@ from . import transforms
 from .core import GeneratorInfo
 from .serapi import annotate, SerAPI
 from .html import ASSETS, ADDITIONAL_HEADS, HtmlGenerator, gen_banner, wrap_classes
-from .pygments import highlight_html, added_tokens, replace_builtin_coq_lexer
+from .pygments import make_highlighter, highlight_html, added_tokens, replace_builtin_coq_lexer
 
 # reST extensions
 # ===============
@@ -194,7 +194,7 @@ class AlectryonTransform(Transform):
         chunks = [pending.details["contents"] for pending in pending_nodes]
         return self.annotate_cached(chunks, sertop_args)
 
-    def replace_node(self, config, writer, pending, fragments):
+    def replace_node(self, config, writer, pending, fragments, lang):
         annots = transforms.IOAnnots(*pending.details['options'])
         if annots.hide:
             pending.parent.remove(pending)
@@ -202,7 +202,7 @@ class AlectryonTransform(Transform):
         fragments = self.set_fragment_annots(fragments, annots)
         fragments = transforms.default_transform(fragments)
         self.check_for_long_lines(pending, fragments)
-        with added_tokens(config.tokens):
+        with added_tokens(config.tokens, lang):
             html = writer.gen_fragments(fragments).render(pretty=False)
         contents = pending.details["contents"]
         pending.replace_self(nodes.raw(contents, html, format='html'))
@@ -212,9 +212,10 @@ class AlectryonTransform(Transform):
         pending_nodes = self.document.traverse(alectryon_pending)
         generator, annotated = self.annotate(pending_nodes, config)
         _alectryon_state(self.document).generator = generator
-        writer = HtmlGenerator(highlight_html, gensym_stem=self.document_id(self.document))
+        highlighter = make_highlighter(highlight_html, lang="coq")
+        writer = HtmlGenerator(highlighter, gensym_stem=self.document_id(self.document))
         for node, fragments in zip(pending_nodes, annotated):
-            self.replace_node(config, writer, node, fragments)
+            self.replace_node(config, writer, node, fragments, "coq")
 
     @staticmethod
     def split_around(node):
