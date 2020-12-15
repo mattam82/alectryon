@@ -98,77 +98,108 @@ def validate_inputs(annotated, reference):
         return annotated.contents == reference
     return False
 
+def validate_metadata(metadata, reference, cache_file):
+    if metadata != reference:
+        MSG = "Outdated metadata in {} ({} != {})"
+        print(MSG.format(cache_file, metadata, reference))
+        return False
+    return True
 
-class FileCache:
-    CACHE_VERSION = "1"
+def validate_data(data, reference, cache_file):
+    if data != reference:
+        MSG = "Outdated contents in {}: recomputing"
+        print(MSG.format(cache_file))
+        return False
+    return True
 
-    def __init__(self, cache_root, doc_path, metadata):
+class Cache:
+    def __init__(self, data, cache_file):
+        self.data = data
+        self.cache_file = cache_file
+
+    @staticmethod
+    def normalize(obj):
+        if isinstance(obj, (list, tuple)):
+            return [Cache.normalize(o) for o in obj]
+        if isinstance(obj, dict):
+            return {k: Cache.normalize(v) for (k, v) in obj.items()}
+        return obj
+
+    def _validate(self, chunks, metadata):
+        return (self.data is not None
+           and validate_metadata(self.data["metadata"], metadata, self.cache_file)
+           and validate_data(self.data.get("chunks"), chunks, self.cache_file))
+
+    def get(self, chunks, metadata):
+        if not self._validate(self.normalize(chunks), self.normalize(metadata)):
+            return None
+        return annotated_of_json(self.data.get("annotated"))
+
+    @property
+    def generator(self):
+        return self.data.get("generator", ["Coq+SerAPI", "??"])
+
+    def put(self, chunks, metadata, annotated, generator):
+        self.data = {"generator": generator,
+                   "metadata": self.normalize(metadata),
+                   "chunks": list(chunks),
+                   "annotated": json_of_annotated(annotated)}
+
+class FileCacheSet:
+    CACHE_VERSION = "2"
+    METADATA = {"cache_version": CACHE_VERSION}
+
+    def __init__(self, cache_root, doc_path):
         self.cache_root = path.realpath(cache_root)
         doc_root = path.commonpath((self.cache_root, path.realpath(doc_path)))
         self.cache_rel_file = path.relpath(doc_path, doc_root) + ".cache"
         self.cache_file = path.join(cache_root, self.cache_rel_file)
         self.cache_dir = path.dirname(self.cache_file)
         makedirs(self.cache_dir, exist_ok=True)
-        self.metadata = self.normalize(metadata)
-        self.metadata["cache_version"] = self.CACHE_VERSION
-        self.data = self._read()
 
-    @staticmethod
-    def normalize(obj):
-        if isinstance(obj, (list, tuple)):
-            return [FileCache.normalize(o) for o in obj]
-        if isinstance(obj, dict):
-            return {k: FileCache.normalize(v) for (k, v) in obj.items()}
-        return obj
+        js = self._read()
+        self.caches = {}
+        if js and validate_metadata(js["metadata"], self.METADATA, self.cache_rel_file):
+            for lang, data in js["caches"].items():
+                self.caches[lang] = Cache(data, self.cache_rel_file)
 
-    def _validate(self, data, reference):
-        metadata = data.get("metadata")
-        if self.metadata != metadata:
-            MSG = "Outdated metadata in {} ({} != {}): recomputing annotations"
-            print(MSG.format(self.cache_rel_file, self.metadata, metadata))
-            return False
-        reference = self.normalize(reference)
-        if reference != data.get("chunks"):
-            MSG = "Outdated contents in {}: recomputing"
-            print(MSG.format(self.cache_rel_file))
-            return False
-        return True
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_exn):
+        self._write()
+        return False
+
+    def __getitem__(self, lang):
+        if lang not in self.caches:
+            self.caches[lang] = Cache(None, self.cache_rel_file)
+        return self.caches[lang]
 
     def _read(self):
         try:
             with open(self.cache_file) as cache:
-                return self.normalize(json.load(cache))
+                return json.load(cache)
         except FileNotFoundError:
             return None
 
-    def get(self, chunks):
-        if self.data is None or not self._validate(self.data, chunks):
-            return None
-        return annotated_of_json(self.data.get("annotated"))
-
-    @property
-    def generator(self):
-        return core.GeneratorInfo(*self.data.get("generator", ("Coq+SerAPI", "??")))
-
-    def put(self, chunks, annotated, generator):
+    def _write(self):
         with open(self.cache_file, mode="w") as cache:
-            self.data = {"generator": generator,
-                       "metadata": self.metadata,
-                       "chunks": list(chunks),
-                       "annotated": json_of_annotated(annotated)}
-            json.dump(self.data, cache, indent=2)
+            json.dump({ "metadata": self.METADATA,
+                        "caches": { lang: c.data for (lang, c) in self.caches.items() } },
+                      cache, indent=2)
 
-class DummyCache:
+class DummyCacheSet():
     def __init__(self, *_args):
-        self.generator = None
+        pass
 
-    def get(self, *_args): # pylint: disable=no-self-use
-        return None
+    def __enter__(self):
+        return self
 
-    def put(self, _chunks, _annotated, generator):
-        self.generator = generator
+    def __exit__(self, *_exn):
+        return False
 
-def Cache(cache_root, doc_path, sertop_args):
-    metadata = {"sertop_args": sertop_args}
-    cls = FileCache if cache_root is not None else DummyCache
-    return cls(cache_root, doc_path, metadata)
+    def __getitem__(self, lang):
+        return Cache(None, None)
+
+def CacheSet(cache_root, doc_path):
+    return (FileCacheSet if cache_root is not None else DummyCacheSet)(cache_root, doc_path)

@@ -65,20 +65,13 @@ def rst_to_code(rst, fpath, point, marker, backend):
         assert False
     return _catch_parsing_errors(fpath, converter, rst, point, marker)
 
-def annotate_chunks(chunks, input_language, sertop_args, lean3_args):
-    if input_language == "coq":
-        from .serapi import SerAPI as prover
-        prover_args = sertop_args
-    elif input_language == "lean3":
-        from .lean3 import Lean3 as prover
-        prover_args = lean3_args
-    else:
-        assert False
-    return prover.annotate(chunks, prover_args)
+def annotate_chunks(chunks, input_language, prover_args):
+    from .core import get_prover
+    return get_prover(input_language).annotate(chunks, prover_args[input_language])
 
-def register_docutils(v, sertop_args):
+def register_docutils(v, prover_args):
     from .docutils import setup, AlectryonTransform
-    AlectryonTransform.SERTOP_ARGS = sertop_args
+    AlectryonTransform.PROVER_ARGS = prover_args
     setup()
     return v
 
@@ -278,11 +271,11 @@ def copy_assets(state, html_assets, copy_fn, output_directory):
 
 def dump_html_standalone(snippets, fname, webpage_style,
                          include_banner, include_vernums,
-                         html_assets, html_classes):
+                         html_assets, html_classes,
+                         input_language):
     from dominate import tags, document
     from dominate.util import raw
     from . import GENERATOR
-    from .serapi import SerAPI
     from .pygments import HTML_FORMATTER
     from .html import ASSETS, ADDITIONAL_HEADS, gen_banner, wrap_classes
 
@@ -310,7 +303,9 @@ def dump_html_standalone(snippets, fname, webpage_style,
     cls = wrap_classes(webpage_style, *html_classes)
     root = doc.body.add(tags.article(cls=cls))
     if include_banner:
-        root.add(raw(gen_banner(SerAPI.version_info(), include_vernums)))
+        from .core import get_prover
+        prover = get_prover(input_language)
+        root.add(raw(gen_banner([prover.version_info()], include_vernums)))
     for snippet in snippets:
         root.add(snippet)
 
@@ -551,7 +546,11 @@ def post_process_arguments(parser, args):
             MSG = "argument --mark-point: Expecting a number, not {!r}"
             parser.error(MSG.format(args.point))
 
-    args.lean3_args = ()
+    args.prover_args = {
+        "coq": args.sertop_args,
+        "lean3": (),
+    }
+    delattr(args, "sertop_args")
 
     args.html_assets = []
     args.html_classes = []

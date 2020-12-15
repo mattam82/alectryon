@@ -20,34 +20,35 @@
 
 """reStructuredText support for Alectryon.
 
-This file defines a ``.. coq::`` directive, which formats its contents using
-Alectryon::
+This file defines directives that formats their contents using Alectryon::
 
-       .. coq::
+    .. coq::
 
-           Example test: nat.
+        Check nat.
 
-This directive supports various arguments to control the appearance of the
+    .. lean::
+
+        #check nat.
+
+These directives support various arguments to control the appearance of the
 output; check out the README for details.
 
-To use it, call ``docutils_support.register()`` before running your
+To use them, call ``docutils_support.register()`` before running your
 reStructuredText to HTML converter.  The generated code relies on CSS classes
 defined in the ``assets/alectryon.css`` file.
 
 A checkbox and an accompanying label (with classes ``alectryon-toggle`` and
 ``alectryon-toggle-label``) allowing users to reveal all goals and responses at
-once is automatically added right before the document's first paragraph.  You
-can change its location by inserting an explicit ``.. alectryon-toggle::``
-directive in your document, and you can ommit it entirely by setting
-``AlectryonTransform.insert_toggle`` to ``False`` (to make styling easier, all
-contents following the checkbox are wrapped in a container with class
-``alectryon-container``).
+once cab be inserted by adding an explicit ``.. alectryon-toggle::`` directive
+in your document (to make styling easier, all contents following the checkbox
+are wrapped in a container with class ``alectryon-container``).
 
-Inline Coq highlighting is provided by the ``:coq:`` role.  By default it uses
-Pygments' default Coq highlighter (like ``.. code-block``), but you can change
-that using ``alectryon.pygments.replace_builtin_coq_lexer()``.
+Inline Coq highlighting is provided by the ``:coq:`` role (use ``:lean:`` for
+Lean code).  By default the Coq highlighter uses Pygments' default Coq
+highlighter (like ``.. code-block``), but you can change that using
+``alectryon.pygments.replace_builtin_coq_lexer()``.
 
-If you write lots of inline Coq snippets, consider calling ``set_default_role``,
+If you write lots of inline code snippets, consider calling ``set_default_role``,
 which will set the default role to ``:coq:``.
 
 For convenience, ``alectryon.docutils.setup()`` can be used to perform all the
@@ -56,6 +57,7 @@ steps above at once.
 
 import re
 import os.path
+from collections import defaultdict
 
 import docutils
 from docutils import nodes, frontend
@@ -67,8 +69,7 @@ from docutils.transforms import Transform
 from docutils.writers import get_writer_class
 
 from . import transforms
-from .core import GeneratorInfo
-from .serapi import annotate, SerAPI
+from .core import get_prover
 from .html import ASSETS, ADDITIONAL_HEADS, HtmlGenerator, gen_banner, wrap_classes
 from .pygments import make_highlighter, highlight_html, added_tokens, replace_builtin_coq_lexer
 
@@ -105,7 +106,7 @@ CACHE_DIRECTORY = None
 # LATER: dataclass
 class AlectryonState:
     def __init__(self):
-        self.generator = None
+        self.generators = []
         self.transform_executed = False
 
 def _alectryon_state(document):
@@ -116,8 +117,8 @@ def _alectryon_state(document):
 
 class Config:
     def __init__(self, document):
-        self.tokens_by_lang = {}
-        self.sertop_args = []
+        self.tokens_by_lang = defaultdict(dict)
+        self.prover_args = defaultdict(list)
         # Sphinx doesn't translate ``field_list`` to ``docinfo``
         selector = lambda n: isinstance(n, (nodes.field_list, nodes.docinfo))
         for di in document.traverse(selector):
@@ -134,11 +135,10 @@ class Config:
                 lang, token = "coq", name[len("coq/"):]
             else:
                 return
-            lang_tokens = self.tokens_by_lang.setdefault(lang, {})
-            lang_tokens.setdefault(token, []).extend(body.split())
+            self.tokens_by_lang[lang].setdefault(token, []).extend(body.split())
         elif name == "alectryon/serapi/args":
             import shlex
-            self.sertop_args.extend(self.parse_args(shlex.split(body)))
+            self.prover_args["coq"].extend(self.parse_args(shlex.split(body)))
         else:
             return
         node.parent.remove(node)
@@ -162,8 +162,11 @@ class AlectryonTransform(Transform):
     default_priority = 995
     auto_toggle = True
 
-    SERTOP_ARGS = ()
-    """Arguments to pass to SerAPI, in SerAPI format."""
+    SERTOP_ARGS = () # FIXME change into a proxy and remove compat code below
+    """DEPRECATED; use PROVER_ARGS["coq"] instead."""
+
+    PROVER_ARGS = defaultdict(list)
+    """Arguments to pass to each prover (in SerAPI format for Coq)."""
 
     @staticmethod
     def set_fragment_annots(fragments, annots):
@@ -186,20 +189,15 @@ class AlectryonTransform(Transform):
             opts = dict(line=node.line + linum) if hasattr(node, "line") else {}
             self.document.reporter.warning(msg, base_node=node, **opts)
 
-    def annotate_cached(self, chunks, sertop_args):
-        from .json import Cache
-        cache = Cache(CACHE_DIRECTORY, self.document['source'], sertop_args)
-        annotated = cache.get(chunks)
-        if annotated is None:
-            # Later: decouple from .serapi by generalizing over `annotate`
-            annotated = annotate(chunks, sertop_args)
-            cache.put(chunks, annotated, SerAPI.version_info())
-        return cache.generator, annotated
-
-    def annotate(self, pending_nodes, config):
-        sertop_args = (*self.SERTOP_ARGS, *config.sertop_args)
+    @staticmethod
+    def annotate(pending_nodes, lang, args, cache):
         chunks = [pending.details["contents"] for pending in pending_nodes]
-        return self.annotate_cached(chunks, sertop_args)
+        annotated = cache.get(chunks, args)
+        if annotated is None:
+            Prover = get_prover(lang)
+            annotated = Prover.annotate(chunks, args)
+            cache.put(chunks, args, annotated, Prover.version_info())
+        return cache.generator, annotated
 
     def replace_node(self, config, writer, pending, fragments, lang):
         annots = transforms.IOAnnots(*pending.details['options'])
@@ -214,15 +212,33 @@ class AlectryonTransform(Transform):
         contents = pending.details["contents"]
         pending.replace_self(nodes.raw(contents, html, format='html'))
 
-    def apply_coq(self):
+    def collect_pending(self):
+        by_lang = {}
+        for pending in self.document.traverse(alectryon_pending):
+            by_lang.setdefault(pending.details["lang"], []).append(pending)
+        return by_lang
+
+    def _prover_args(self, config):
+        args = defaultdict(list)
+        for lang in set(self.PROVER_ARGS) | set(config.prover_args):
+            args[lang].extend(config.prover_args[lang])
+            args[lang].extend(self.PROVER_ARGS[lang])
+        if self.SERTOP_ARGS: # Compatibility
+            args["coq"].extend(self.SERTOP_ARGS)
+        return args
+
+    def apply_provers(self):
+        from .json import CacheSet
         config = Config(self.document)
-        pending_nodes = self.document.traverse(alectryon_pending)
-        generator, annotated = self.annotate(pending_nodes, config)
-        _alectryon_state(self.document).generator = generator
-        highlighter = make_highlighter(highlight_html, lang="coq")
-        writer = HtmlGenerator(highlighter, gensym_stem=self.document_id(self.document))
-        for node, fragments in zip(pending_nodes, annotated):
-            self.replace_node(config, writer, node, fragments, "coq")
+        args = self._prover_args(config)
+        with CacheSet(CACHE_DIRECTORY, self.document['source']) as caches:
+            for lang, pending_nodes in self.collect_pending().items():
+                generator, annotated = self.annotate(pending_nodes, lang, args[lang], caches[lang])
+                _alectryon_state(self.document).generators.append(generator)
+                highlighter = make_highlighter(highlight_html, lang=lang)
+                writer = HtmlGenerator(highlighter, gensym_stem=self.document_id(self.document))
+                for node, fragments in zip(pending_nodes, annotated):
+                    self.replace_node(config, writer, node, fragments, lang)
 
     @staticmethod
     def split_around(node):
@@ -257,7 +273,7 @@ class AlectryonTransform(Transform):
         state = _alectryon_state(self.document)
         if not state.transform_executed:
             state.transform_executed = True
-            self.apply_coq()
+            self.apply_provers()
             self.apply_toggle()
 
 # Directives
@@ -294,10 +310,8 @@ def recompute_contents(directive, real_indentation):
     code_indentation = block_indentation + real_indentation
     return "\n".join(ln[code_indentation:] for ln in block_lines[block_header_len:])
 
-class CoqDirective(Directive):
+class ProverDirective(Directive):
     """Highlight and annotate a Coq snippet."""
-    name = "coq"
-
     required_arguments = 0
     optional_arguments = 1
     final_argument_whitespace = True
@@ -310,11 +324,21 @@ class CoqDirective(Directive):
         self.assert_has_content()
         arguments = self.arguments[0].split() if self.arguments else []
         contents = recompute_contents(self, CoqDirective.EXPECTED_INDENTATION)
-        details = {"options": set(arguments), "contents": contents}
+        details = {"lang": self.name,
+                   "options": set(arguments),
+                   "contents": contents}
         pending = alectryon_pending(AlectryonTransform, details=details)
         set_line(pending, self.lineno, self.state_machine)
         self.state_machine.document.note_pending(pending)
         return [pending]
+
+class CoqDirective(ProverDirective):
+    """Highlight and annotate a Coq snippet."""
+    name = "coq"
+
+class Lean3Directive(ProverDirective):
+    """Highlight and annotate a Coq snippet."""
+    name = "lean3"
 
 class AlectryonToggleDirective(Directive):
     """Display a checkbox allowing readers to show all output at once."""
@@ -361,14 +385,18 @@ def alectryon_bubble(role, rawtext, text, lineno, inliner, options={}, content=[
 
 alectryon_bubble.name = "alectryon-bubble"
 
-#pylint: disable=dangerous-default-value,unused-argument
-def coq_code_role(role, rawtext, text, lineno, inliner, options={}, content=[]):
-    options = {**options, "language": "coq"}
-    roles.set_classes(options)
-    options.setdefault("classes", []).append("highlight")
-    return roles.code_role(role, rawtext, text, lineno, inliner, options, content)
+def mk_code_role(lang):
+    #pylint: disable=dangerous-default-value,unused-argument
+    def code_role(role, rawtext, text, lineno, inliner, options={}, content=[]):
+        options = {**options, "language": lang}
+        roles.set_classes(options)
+        options.setdefault("classes", []).append("highlight")
+        return roles.code_role(role, rawtext, text, lineno, inliner, options, content)
+    code_role.name = lang
+    return code_role
 
-coq_code_role.name = "coq"
+coq_code_role = mk_code_role("coq")
+lean_code_role = mk_code_role("lean")
 
 COQ_ID_RE = re.compile(r"^(?P<title>.*?)(?:\s*<(?P<target>.*)>)?$")
 COQ_IDENT_DB_URLS = [
@@ -556,9 +584,9 @@ class HtmlTranslator(DefaultWriter().translator_class):
         cls = wrap_classes(self.settings.webpage_style)
         self.body_prefix.append('<div class="{}">'.format(cls))
         if self.settings.alectryon_banner:
-            generator = _alectryon_state(document).generator
+            generators = _alectryon_state(document).generators
             include_vernums = document.settings.alectryon_vernums
-            self.body_prefix.append(gen_banner(generator, include_vernums))
+            self.body_prefix.append(gen_banner(generators, include_vernums))
         self.body_suffix.insert(0, '</div>')
 
 ALECTRYON_SETTINGS = [
@@ -595,9 +623,12 @@ NODES = [alectryon_pending,
          alectryon_pending_toggle]
 TRANSFORMS = [AlectryonTransform]
 DIRECTIVES = [CoqDirective,
+              Lean3Directive,
               AlectryonToggleDirective,
               ExperimentalExerciseDirective]
-ROLES = [alectryon_bubble, coq_code_role, coq_id_role]
+ROLES = [alectryon_bubble,
+         coq_code_role, lean_code_role,
+         coq_id_role]
 
 def register():
     """Tell Docutils about our roles and directives."""
@@ -606,17 +637,21 @@ def register():
     for role in ROLES:
         roles.register_canonical_role(role.name, role)
 
-def set_default_role():
-    """Set the default role (the one used with single backticks) to :coq:."""
-    roles.register_canonical_role(coq_code_role.name, coq_code_role)
-    roles.DEFAULT_INTERPRETED_ROLE = coq_code_role.name
+def set_default_role(lang="coq"):
+    """Set the default role (the one used with single backticks) to :``lang``:."""
+    for role in ROLES:
+        if role.name == lang:
+            roles.register_canonical_role(coq_code_role.name, coq_code_role)
+            roles.DEFAULT_INTERPRETED_ROLE = coq_code_role.name
+            return
+    raise ValueError("Unsupported language: {}".format(lang))
 
-def setup():
-    """Prepare docutils for writing Coq documents with Alectryon.
+def setup(lang="coq"):
+    """Prepare docutils for writing documents with Alectryon.
 
     This includes registering Alectryon's role and directives, loading an
-    improved Coq highlighter, and setting the default role to ``:coq:``.
+    improved Coq highlighter, and setting the default role to ``:lang:``.
     """
     register()
-    set_default_role()
+    set_default_role(lang)
     replace_builtin_coq_lexer()
