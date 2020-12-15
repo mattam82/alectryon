@@ -207,7 +207,7 @@ class AlectryonTransform(Transform):
             pending.parent.remove(pending)
             return
         fragments = self.set_fragment_annots(fragments, annots)
-        fragments = transforms.default_transform(fragments)
+        fragments = transforms.default_transform(fragments, lang)
         self.check_for_long_lines(pending, fragments)
         with added_tokens(config.tokens_by_lang.get(lang, {}), lang):
             html = writer.gen_fragments(fragments).render(pretty=False)
