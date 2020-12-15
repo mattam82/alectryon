@@ -5,11 +5,12 @@ minimal := $(PYTHON) -m alectryon.minimal
 
 assets := alectryon.css alectryon.js
 all := .version-info \
-	plain.v.html literate.v.html coqdoc.v.html \
-	coqdoc.html literate.html document.html hyps.html mathjax.html document.minimal.html \
-	document.v literate.v.rst \
-	fragments.io.json fragments.snippets.html fragments.snippets.tex \
-	latex.snippets.tex \
+	plain.v.html literate.v.html \
+	coqdoc.v.html coqdoc.html \
+	literate.html custom_highlighting.html document.html hyps.html mathjax.html \
+	document.minimal.html document.v literate.v.rst \
+	fragments.io.json fragments.snippets.html \
+	fragments.snippets.tex latex.snippets.tex \
 	api.out
 
 all: $(patsubst %,output/%,$(all) $(assets)) sphinx/_build/html/index.html;
@@ -37,6 +38,8 @@ output/coqdoc.html: coqdoc.v | output
 
 # Coq+reST → HTML
 output/literate.html: literate.v | output
+	$(alectryon) $<
+output/custom_highlighting.html: custom_highlighting.v | output
 	$(alectryon) $<
 
 # reST+Coq → HTML

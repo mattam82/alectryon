@@ -116,7 +116,7 @@ def _alectryon_state(document):
 
 class Config:
     def __init__(self, document):
-        self.tokens = {}
+        self.tokens_by_lang = {}
         self.sertop_args = []
         # Sphinx doesn't translate ``field_list`` to ``docinfo``
         selector = lambda n: isinstance(n, (nodes.field_list, nodes.docinfo))
@@ -127,8 +127,15 @@ class Config:
 
     def parse_docinfo_field(self, node, name, body):
         if name.startswith("alectryon/pygments/"):
-            token = name[len("alectryon/pygments/"):]
-            self.tokens.setdefault(token, []).extend(body.split())
+            name = name[len("alectryon/pygments/"):]
+            if "/" not in name:
+                lang, token = "coq", name # legacy syntax doesn't have coq/
+            elif name.startswith("coq/"):
+                lang, token = "coq", name[len("coq/"):]
+            else:
+                return
+            lang_tokens = self.tokens_by_lang.setdefault(lang, {})
+            lang_tokens.setdefault(token, []).extend(body.split())
         elif name == "alectryon/serapi/args":
             import shlex
             self.sertop_args.extend(self.parse_args(shlex.split(body)))
@@ -202,7 +209,7 @@ class AlectryonTransform(Transform):
         fragments = self.set_fragment_annots(fragments, annots)
         fragments = transforms.default_transform(fragments)
         self.check_for_long_lines(pending, fragments)
-        with added_tokens(config.tokens, lang):
+        with added_tokens(config.tokens_by_lang.get(lang, {}), lang):
             html = writer.gen_fragments(fragments).render(pretty=False)
         contents = pending.details["contents"]
         pending.replace_self(nodes.raw(contents, html, format='html'))
