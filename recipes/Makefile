@@ -11,7 +11,7 @@ all := .version-info \
 	document.minimal.html document.v literate.v.rst \
 	fragments.io.json fragments.snippets.html \
 	fragments.snippets.tex latex.snippets.tex \
-	plain.lean.html \
+	plain.lean.html lean3-tutorial.html \
 	api.out
 
 all: $(patsubst %,output/%,$(all) $(assets)) sphinx/_build/html/index.html;
@@ -82,6 +82,10 @@ output/latex.snippets.tex: latex.v | output
 # Lean3 → HTML
 output/plain.lean.html: plain.lean | output
 	$(alectryon) --frontend lean3 $<
+
+# reST+Lean3 → HTML
+output/lean3-tutorial.html: lean3-tutorial.rst | output
+	$(alectryon) $<
 
 # Sphinx
 sphinx/_build/html/index.html: sphinx/index.rst
