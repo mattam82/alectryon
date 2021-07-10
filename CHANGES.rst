@@ -2,6 +2,9 @@
  Breaking changes
 ==================
 
+- Simplify the HTML markup for hypothesis blocks (may affect third-party
+  stylesheets). (90fc733)
+
 Version 1.1
 ===========
 
