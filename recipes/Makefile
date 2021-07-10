@@ -1,6 +1,6 @@
 PYTHON ?= python3
 
-alectryon := ../alectryon.py --output-directory output --no-version-numbers --traceback
+alectryon := python3 -Wd -X tracemalloc ../alectryon.py --output-directory output --no-version-numbers --traceback
 minimal := $(PYTHON) -m alectryon.minimal
 
 assets := alectryon.css alectryon.js alectryon.sty
